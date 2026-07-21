@@ -21,6 +21,18 @@ export async function loadState(): Promise<StoreState> {
   return raw;
 }
 
+// 保存済みデータが存在するにも関わらずschemaVersionが未知の場合を検出する。
+// reconcileOrigins()はこれを見て破壊的な孤児削除処理をスキップする
+// （loadState()は未知schemaを「空」として返すため、区別せずにreconcileすると
+// 実際には有効だった権限・登録済みスクリプトを孤児と誤判定して全削除
+// してしまう。将来schemaVersionを上げる際、対応するマイグレーションが
+// 実装されるまでの安全装置）。
+export async function hasUnrecognizedSchema(): Promise<boolean> {
+  const stored = await chrome.storage.local.get(STORAGE_KEY);
+  const raw = stored[STORAGE_KEY] as StoreState | undefined;
+  return raw !== undefined && raw.schemaVersion !== 1;
+}
+
 export async function saveState(state: StoreState): Promise<void> {
   await chrome.storage.local.set({ [STORAGE_KEY]: state });
 }

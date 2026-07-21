@@ -1,4 +1,4 @@
-import { loadState, saveState, deleteRecordsForOrigin, enqueueTask } from "./storage";
+import { loadState, saveState, deleteRecordsForOrigin, enqueueTask, hasUnrecognizedSchema } from "./storage";
 import type { ActionResponse } from "../shared/messages";
 // CRXJSの`?script`インポートは、実際にビルドされたファイル名（ハッシュ付き）
 // を解決してくれる。動的登録・都度注入のいずれもmanifestのcontent_scripts
@@ -139,10 +139,20 @@ export async function disableOrigin(origin: string): Promise<ActionResponse> {
     // 無視する
   }
 
-  const state = await loadState();
-  state.enabledOrigins = state.enabledOrigins.filter((o) => o !== origin);
-  await saveState(state);
-  await deleteRecordsForOrigin(origin);
+  // ここまでで権限・登録の解除（実効的な無効化）は完了している。
+  // 以降のstorage書き込みが失敗しても「無効化に失敗した」と報告しない
+  // （権限は既に失われているため）。enabledOriginsに古いエントリが
+  // 残っても、次回のreconcileOrigins()が権限喪失を検出して自己修復する
+  // （Stage5指摘：enableOrigin側は既にロールバックで対称に扱っていたが、
+  // disableOrigin側は書き込み失敗時の扱いが未定義だった）。
+  try {
+    const state = await loadState();
+    state.enabledOrigins = state.enabledOrigins.filter((o) => o !== origin);
+    await saveState(state);
+    await deleteRecordsForOrigin(origin);
+  } catch {
+    // 次回reconcileOrigins()に委ねる
+  }
 
   return { ok: true };
 }
@@ -155,6 +165,14 @@ export async function disableOrigin(origin: string): Promise<ActionResponse> {
 //     追加：enableOrigin成功後にstorage書き込みだけが失敗した場合等に
 //     生じ得る片方向の不整合を、旧実装は検出できなかった）。
 export async function reconcileOrigins(): Promise<void> {
+  // schemaVersionが未知の場合、loadState()は「空」を返すため、以降の
+  // 孤児削除ロジック（expectedPatterns/expectedScriptIdsが空集合になる）
+  // が実際には有効だったはずの権限・登録済みスクリプトを全て孤児と
+  // 誤判定して削除してしまう。何が期待される状態か判断できないため、
+  // 何もせず安全側に倒す（実データはstorageにそのまま残り、対応する
+  // マイグレーション実装後の再チェックで正しく解決される）。
+  if (await hasUnrecognizedSchema()) return;
+
   const state = await loadState();
   let changed = false;
 
@@ -162,6 +180,15 @@ export async function reconcileOrigins(): Promise<void> {
     const granted = await isPermissionGranted(origin);
     if (!granted) {
       state.enabledOrigins = state.enabledOrigins.filter((o) => o !== origin);
+      // deleteRecordsForOrigin()は使わない：それ自身が独立した
+      // loadState→saveStateを行うため、この関数末尾の`saveState(state)`
+      // （このループ開始時点で読み込んだ古いコピー）が後から上書きして
+      // しまい、削除したはずのレコードが復活する（修正時に発覚した
+      // ロストアップデート）。同一のstateオブジェクト上で直接削除する。
+      for (const [key, record] of Object.entries(state.records)) {
+        if (record.origin === origin) delete state.records[key];
+      }
+      await broadcastStopTracking(origin);
       await unregisterForOrigin(origin);
       changed = true;
       continue;

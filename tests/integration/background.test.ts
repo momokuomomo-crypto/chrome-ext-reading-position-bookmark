@@ -321,6 +321,90 @@ describe("background: SAVE_POSITION・GET_RECORD", () => {
   });
 });
 
+describe("background: schemaVersion不整合時の安全装置（監査で発見）", () => {
+  it("未知のschemaVersionの場合、reconcileOrigins()は既存の権限・登録済みスクリプトを孤児とみなして削除しない", async () => {
+    await chrome.storage.local.set({
+      readingPositionState: { schemaVersion: 2, enabledOrigins: [], records: {} },
+    });
+    chrome.permissions.getAll.resolves({ origins: ["https://example.com/*"], permissions: [] });
+    chromeExtra.scripting.getRegisteredContentScripts.resolves([
+      { id: "reading-position-123", matches: ["https://example.com/*"] },
+    ]);
+    await loadBackgroundFresh();
+
+    await dispatchMessage<GetRecordResponse>({
+      type: "GET_RECORD",
+      origin: "https://example.com",
+      canonicalUrl: "https://example.com/a",
+    });
+
+    expect(chrome.permissions.remove.called).toBe(false);
+    expect(chromeExtra.scripting.unregisterContentScripts.called).toBe(false);
+  });
+});
+
+describe("background: reconcileOriginsの権限喪失検知（監査で発見：disableOriginと後始末が不整合だった）", () => {
+  it("権限が失われているenabled originはSTOP_TRACKING送信・レコード削除も行う", async () => {
+    await seedState({
+      schemaVersion: 1,
+      enabledOrigins: ["https://example.com"],
+      records: {
+        "https://example.com/a": fakeRecord({ canonicalUrl: "https://example.com/a", origin: "https://example.com" }),
+      },
+    });
+    chrome.permissions.contains.resolves(false);
+    chrome.tabs.query.resolves([{ id: 1 }]);
+    chrome.tabs.sendMessage.resolves(undefined);
+    await loadBackgroundFresh();
+
+    await dispatchMessage<GetRecordResponse>({
+      type: "GET_RECORD",
+      origin: "https://example.com",
+      canonicalUrl: "https://example.com/a",
+    });
+
+    expect(chrome.tabs.sendMessage.calledWith(1, { type: "STOP_TRACKING", origin: "https://example.com" })).toBe(
+      true,
+    );
+    const stored = (await chrome.storage.local.get("readingPositionState")) as {
+      readingPositionState: StoreState;
+    };
+    expect(stored.readingPositionState.records["https://example.com/a"]).toBeUndefined();
+  });
+});
+
+describe("background: disableOriginのstorage書き込み失敗耐性（監査で発見）", () => {
+  it("storage書き込みが失敗しても、権限・登録は既に解除済みのため無効化成功として返す", async () => {
+    await seedState({ schemaVersion: 1, enabledOrigins: ["https://example.com"], records: {} });
+    chrome.tabs.query.resolves([]);
+    await loadBackgroundFresh();
+    chrome.storage.local.set.rejects(new Error("quota exceeded"));
+
+    const response = await dispatchMessage<ActionResponse>({
+      type: "DISABLE_ORIGIN",
+      origin: "https://example.com",
+    });
+
+    expect(response.ok).toBe(true);
+    expect(chrome.permissions.remove.called).toBe(true);
+  });
+});
+
+describe("background: onStartup（監査で発見：onInstalledのみでは再起動後の整合性チェックが受動的だった）", () => {
+  it("ブラウザ再起動時にも整合性チェックを実行する", async () => {
+    await seedState({ schemaVersion: 1, enabledOrigins: ["https://example.com"], records: {} });
+    chrome.permissions.contains.resolves(true);
+    chromeExtra.scripting.getRegisteredContentScripts.resolves([]);
+    await loadBackgroundFresh();
+
+    const listener = chrome.runtime.onStartup.addListener.lastCall.args[0] as () => void;
+    listener();
+    await flushAsync();
+
+    expect(chromeExtra.scripting.registerContentScripts.called).toBe(true);
+  });
+});
+
 describe("background: DELETE_RECORD・DELETE_ALL", () => {
   it("DELETE_RECORDは指定したURLの記録のみ削除する", async () => {
     await seedState({

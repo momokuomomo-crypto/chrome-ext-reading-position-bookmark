@@ -3,7 +3,7 @@ import { findAnchorElement, textFingerprintOf } from "./anchor";
 import { generateSelector } from "../shared/selector";
 import { isSimilarEnough } from "../shared/similarity";
 import type { PositionRecord } from "../shared/types";
-import type { GetRecordResponse, StopTrackingMessage } from "../shared/messages";
+import type { GetOriginStatusResponse, GetRecordResponse, StopTrackingMessage } from "../shared/messages";
 
 const SAVE_DEBOUNCE_MS = 750;
 const PERIODIC_SAVE_MS = 15000;
@@ -366,10 +366,29 @@ function dispose(): void {
   }
 }
 
-function init(): void {
+async function init(): Promise<void> {
   currentCanonicalUrl = canonicalUrlOf(location.href);
   currentOrigin = originOf(location.href);
   if (currentCanonicalUrl === null || currentOrigin === null) return;
+
+  // Chrome拡張のマッチパターンはポート番号を表現できないため、
+  // registerContentScripts自体は同一ホスト名の別ポートにも注入され得る
+  // （監査で発見：例えばexample.com:8443を有効化すると、ユーザーが
+  // 明示的に許可していないexample.com:9000にもスクリプトが注入される）。
+  // SAVE_POSITION側は既にorigin完全一致（ポート込み）でチェックしている
+  // ためデータの取り違えは起きないが、監視自体（scrollリスナー・
+  // MutationObserver等）をユーザーが有効化していないポートで動かさない
+  // よう、実行前に現在のオリジンが本当に有効かをここで自己チェックする。
+  let status: GetOriginStatusResponse | undefined;
+  try {
+    status = (await chrome.runtime.sendMessage({
+      type: "GET_ORIGIN_STATUS",
+      origin: currentOrigin,
+    })) as GetOriginStatusResponse;
+  } catch {
+    return;
+  }
+  if (!status?.enabled) return;
 
   window.addEventListener("scroll", onScroll, { passive: true });
   document.addEventListener("visibilitychange", onVisibilityChange);
@@ -385,4 +404,4 @@ function init(): void {
   void checkExistingRecord(currentCanonicalUrl);
 }
 
-init();
+void init();

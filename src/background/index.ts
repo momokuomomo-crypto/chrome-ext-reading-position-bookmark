@@ -25,6 +25,13 @@ chrome.runtime.onInstalled.addListener(() => {
   void ensureReconciled();
 });
 
+// ブラウザ再起動後、次のメッセージが届くまで整合性チェックが行われない
+// 受動的な設計だった（Stage5後の監査で発見）。onStartupでも明示的に
+// 実行し、再起動直後から一貫した状態にする。
+chrome.runtime.onStartup.addListener(() => {
+  void ensureReconciled();
+});
+
 async function handlePopupRequest(request: PopupRequest): Promise<ActionResponse | { enabled: boolean }> {
   await ensureReconciled();
   switch (request.type) {
