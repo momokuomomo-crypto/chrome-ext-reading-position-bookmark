@@ -1,0 +1,59 @@
+body {
+  width: 320px;
+  font-family: system-ui, sans-serif;
+  margin: 0;
+  padding: 12px;
+  color: #1f2937;
+}
+
+h1 {
+  font-size: 15px;
+  margin: 0 0 8px;
+}
+
+.error {
+  background: #fee2e2;
+  color: #991b1b;
+  padding: 8px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.note {
+  color: #6b7280;
+  font-size: 11px;
+  margin-top: 0;
+}
+
+.message {
+  color: #065f46;
+  font-size: 12px;
+}
+
+#origin-display {
+  font-size: 13px;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+button {
+  display: block;
+  width: 100%;
+  font-size: 13px;
+  padding: 8px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+  background: #f9fafb;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #f3f4f6;
+}
+
+hr {
+  border: none;
+  border-top: 1px solid #e5e7eb;
+  margin: 12px 0;
+}

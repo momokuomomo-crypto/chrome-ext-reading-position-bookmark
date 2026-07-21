@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>読み終わり位置ブックマーク</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <h1>読み終わり位置ブックマーク</h1>
+
+    <p id="error" class="error" role="alert" hidden></p>
+
+    <p id="origin-display"></p>
+    <p id="other-tabs-note" class="note">他のタブでは再読み込みが必要です。</p>
+
+    <button id="toggle-button">読み込み中...</button>
+
+    <hr />
+
+    <button id="delete-current-button">現在のURLの記録を削除</button>
+    <button id="delete-all-button">保存データをすべて削除</button>
+    <p id="message" class="message" hidden></p>
+
+    <script type="module" src="popup.ts"></script>
+  </body>
+</html>
